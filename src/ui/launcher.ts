@@ -66,10 +66,11 @@ export function createLauncher(onClick: () => void): LauncherHandle {
   return {
     el: button,
     setOpen(open) {
+      const changed = open !== isOpen;
       isOpen = open;
       button.setAttribute('aria-expanded', String(open));
       updateAriaLabel();
-      render();
+      if (changed) render();
     },
     setUnread(unread) {
       unreadCount =
@@ -83,8 +84,15 @@ export function createLauncher(onClick: () => void): LauncherHandle {
       updateAriaLabel();
     },
     configure(next) {
+      // Rebuilding replays the label's entrance, so a text change only swaps the text.
+      const rebuild = next.style !== config.style || next.icon !== config.icon;
       config = next;
-      render();
+      if (rebuild) {
+        render();
+        return;
+      }
+      const label = button.querySelector('.kw-launcher-label');
+      if (label) label.textContent = next.label;
     },
     focus() {
       button.focus();

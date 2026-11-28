@@ -17,7 +17,6 @@ import { createLeadCaptureForm } from './lead-capture';
 import type { LeadCaptureConfig, LeadCaptureData } from './lead-capture';
 import { createContactPrompt } from './contact-prompt';
 import type { ContactPromptConfig, ContactPromptData } from './contact-prompt';
-import { renderLoadingSkeleton, clearLoadingSkeleton } from './message-list';
 import { createBrandMark, setBrandMarkImage } from './branding';
 import { homeBackgroundPresetUrl } from './backgrounds';
 
@@ -25,7 +24,7 @@ export interface ChatWindowHandle {
   el: HTMLElement;
   listEl: HTMLElement;
   setVisible(visible: boolean): void;
-  setLoading(loading: boolean): void;
+  setPreviousMessages(state: 'hidden' | 'ready' | 'loading' | 'error'): void;
   setConnectionStatus(connected: boolean): void;
   setAvailability(isOpen: boolean): void;
   setStatusMessages(online: string, offline: string): void;
@@ -79,6 +78,8 @@ const HOME_ICON =
   '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const MORE_ICON =
   '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>';
+const HISTORY_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 12a9 9 0 1 1 2.6 6.4M3 7v5h5m4-5v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const EXPAND_ICON =
   '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 9V3m0 0L9 6m3-3 3 3M12 15v6m0 0-3-3m3 3 3-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const COLLAPSE_ICON =
@@ -94,6 +95,7 @@ export function createChatWindow(handlers: {
   onUpload: (file: File) => Promise<MessageAttachment>;
   onStarter: (text: string) => void;
   onContinue: () => void;
+  onPreviousMessages: () => void;
   onStart: () => void;
   onLeadSubmit: (data: LeadCaptureData) => void;
   onComposerInput: (value: string) => void;
@@ -336,6 +338,19 @@ export function createChatWindow(handlers: {
   const chatView = document.createElement('div');
   chatView.className = 'kw-chat-view';
 
+  const transcript = document.createElement('div');
+  transcript.className = 'kw-transcript';
+
+  const previousMessages = document.createElement('button');
+  previousMessages.type = 'button';
+  previousMessages.className = 'kw-previous-messages';
+  previousMessages.hidden = true;
+  previousMessages.innerHTML = HISTORY_ICON;
+  const previousMessagesLabel = document.createElement('span');
+  previousMessagesLabel.textContent = 'Previous messages';
+  previousMessages.append(previousMessagesLabel);
+  previousMessages.addEventListener('click', handlers.onPreviousMessages);
+
   const list = document.createElement('div');
   list.className = 'kw-list';
   list.setAttribute('role', 'log');
@@ -352,7 +367,8 @@ export function createChatWindow(handlers: {
     onDismiss: handlers.onContactPromptDismiss,
   });
 
-  chatView.append(list, typingIndicator.el, composer.el);
+  transcript.append(previousMessages, list);
+  chatView.append(transcript, typingIndicator.el, composer.el);
 
   const body = document.createElement('div');
   body.className = 'kw-body';
@@ -410,12 +426,15 @@ export function createChatWindow(handlers: {
       panel.hidden = !visible;
       if (!visible) setMenuOpen(false);
     },
-    setLoading(loading) {
-      if (loading) {
-        renderLoadingSkeleton(list);
-      } else {
-        clearLoadingSkeleton(list);
-      }
+    setPreviousMessages(state) {
+      previousMessages.hidden = state === 'hidden';
+      previousMessages.disabled = state === 'loading';
+      previousMessagesLabel.textContent =
+        state === 'loading'
+          ? 'Loading previous messages…'
+          : state === 'error'
+            ? 'Retry previous messages'
+            : 'Previous messages';
     },
     setConnectionStatus(next) {
       connected = next;

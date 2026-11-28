@@ -8,6 +8,7 @@ function createWindow() {
     onUpload: vi.fn(),
     onStarter: vi.fn(),
     onContinue: vi.fn(),
+    onPreviousMessages: vi.fn(),
     onStart: vi.fn(),
     onLeadSubmit: vi.fn(),
     onComposerInput: vi.fn(),

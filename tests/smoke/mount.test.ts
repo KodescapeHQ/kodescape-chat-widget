@@ -431,10 +431,26 @@ describe('mount()', () => {
     widget.destroy();
   });
 
-  it('preloads 20 messages after startup, paginates near the top, and does not refetch on open', async () => {
+  it('checks for history at startup and loads previous messages one click at a time', async () => {
     vi.useFakeTimers();
+    localStorage.setItem(
+      'kodescape_chat_resume_token:site-1',
+      'existing-resume-token',
+    );
     const historyUrls: string[] = [];
-    const contextUrls: string[] = [];
+    const latest = {
+      id: 'latest',
+      conversationId: 'conversation-1',
+      clientMessageId: 'client-latest',
+      direction: 'outbound',
+      senderType: 'human',
+      senderName: 'Support',
+      content: 'Latest saved reply',
+      attachments: [],
+      reactions: [],
+      status: 'sent',
+      createdAt: '2026-01-02T00:00:00Z',
+    };
     vi.stubGlobal(
       'fetch',
       vi.fn((input: string) => {
@@ -451,18 +467,26 @@ describe('mount()', () => {
             expiresAt: new Date(Date.now() + 900_000).toISOString(),
           });
         }
-        if (input.includes('/messages')) {
+        if (input.includes('/messages?')) {
           historyUrls.push(input);
-          return jsonResponse({
-            items: [],
-            nextCursor: input.includes('cursor=older-page')
-              ? null
-              : 'older-page',
-          });
-        }
-        if (input.includes('/context')) {
-          contextUrls.push(input);
-          return jsonResponse({});
+          if (input.includes('cursor=older-page')) {
+            return jsonResponse({
+              items: [
+                {
+                  ...latest,
+                  id: 'older',
+                  clientMessageId: 'client-older',
+                  content: 'Older saved reply',
+                  createdAt: '2026-01-01T00:00:00Z',
+                },
+              ],
+              nextCursor: null,
+            });
+          }
+          if (historyUrls.length === 2) {
+            return Promise.reject(new Error('History temporarily unavailable'));
+          }
+          return jsonResponse({ items: [latest], nextCursor: 'older-page' });
         }
         return jsonResponse({});
       }),
@@ -479,48 +503,60 @@ describe('mount()', () => {
 
     await vi.advanceTimersByTimeAsync(1000);
     expect(historyUrls).toEqual([
-      'http://localhost:5001/api/v1/public/chat/messages?limit=20',
+      'http://localhost:5001/api/v1/public/chat/messages?limit=1',
     ]);
-    expect(contextUrls).toHaveLength(0);
 
     const shadow = (container.firstElementChild as HTMLElement).shadowRoot!;
     const launcher = shadow.querySelector('.kw-launcher') as HTMLButtonElement;
     const list = shadow.querySelector('.kw-list') as HTMLElement;
-    Object.defineProperty(list, 'scrollHeight', {
-      configurable: true,
-      value: 640,
-    });
+    const previous = shadow.querySelector(
+      '.kw-previous-messages',
+    ) as HTMLButtonElement;
     launcher.click();
     await vi.advanceTimersByTimeAsync(0);
-    (
-      shadow.querySelector('.kw-home .kw-btn-primary') as HTMLButtonElement
-    ).click();
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(historyUrls).toEqual([
-      'http://localhost:5001/api/v1/public/chat/messages?limit=20',
-    ]);
-    expect(list.scrollTop).toBe(640);
-
-    list.scrollTop = 0;
+    expect((shadow.querySelector('.kw-chat-view') as HTMLElement).hidden).toBe(
+      false,
+    );
+    expect(previous.hidden).toBe(false);
+    expect(previous.textContent).toBe('Previous messages');
+    expect(list.textContent).toBe('');
     list.dispatchEvent(new Event('scroll'));
     await vi.advanceTimersByTimeAsync(0);
-    expect(historyUrls[1]).toBe(
+    expect(historyUrls).toHaveLength(1);
+
+    previous.click();
+    expect(previous.disabled).toBe(true);
+    expect(previous.textContent).toBe('Loading previous messages…');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(previous.disabled).toBe(false);
+    expect(previous.textContent).toBe('Retry previous messages');
+    expect(list.textContent).toBe('');
+
+    previous.click();
+    previous.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(list.textContent).toContain('Latest saved reply');
+    expect(previous.hidden).toBe(false);
+    list.dispatchEvent(new Event('scroll'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(historyUrls).toEqual([
+      'http://localhost:5001/api/v1/public/chat/messages?limit=1',
+      'http://localhost:5001/api/v1/public/chat/messages?limit=20',
+      'http://localhost:5001/api/v1/public/chat/messages?limit=20',
+    ]);
+
+    previous.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(historyUrls[3]).toBe(
       'http://localhost:5001/api/v1/public/chat/messages?cursor=older-page&limit=20',
     );
+    expect(previous.hidden).toBe(true);
+    expect(list.textContent).toMatch(/Older saved reply.*Latest saved reply/);
 
     launcher.click();
     launcher.click();
     await vi.advanceTimersByTimeAsync(0);
-    expect(historyUrls).toHaveLength(2);
-
-    const textarea = shadow.querySelector(
-      '.kw-composer-input',
-    ) as HTMLTextAreaElement;
-    textarea.value = 'Create the conversation';
-    (shadow.querySelector('.kw-composer-send') as HTMLButtonElement).click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(contextUrls).toHaveLength(1);
+    expect(historyUrls).toHaveLength(4);
 
     widget.destroy();
   });
@@ -1844,6 +1880,10 @@ describe('mount()', () => {
     );
     expect(
       (shadow.querySelector('.kw-resume-link') as HTMLButtonElement).hidden,
+    ).toBe(true);
+    expect(
+      (shadow.querySelector('.kw-previous-messages') as HTMLButtonElement)
+        .hidden,
     ).toBe(true);
 
     widget.destroy();
